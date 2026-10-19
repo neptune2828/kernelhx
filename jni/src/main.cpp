@@ -1,0 +1,941 @@
+#include <main.h>
+#include <check.h>
+#include <GLES3/gl3.h>
+#include <ctgmath>
+#include <imgui_internal.h>
+#include <dirent.h>
+#include <stb_image.h>
+#include "VecTool.h"
+#include "DrawTools.h"
+#include "Aim.h"
+#include "hook.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <dirent.h>
+#include "Tools/shou.hpp"
+
+Vec2 WorldIsScreen(Vec3 obj, float matrix[16], float ViewW)
+{
+	float x =
+		(screen_x / 2) + (matrix[0] * obj.x + matrix[4] * obj.y + matrix[8] * obj.z + matrix[12]) / ViewW * (screen_x / 2);
+	float y =
+		(screen_y / 2) - (matrix[1] * obj.x + matrix[5] * obj.y + matrix[9] * obj.z + matrix[13]) / ViewW * (screen_y / 2);
+
+	return Vec2(x, y);
+}
+
+#define PI 3.14159265358979323846
+
+timer RenderingFPS;
+AimStruct Aim[100];
+struct TempData Temp;
+struct TempData *temp;
+
+ImVec2 suspensionPos;
+ImVec2 aimsuspensionPos;
+ImVec2 SaveWindowPos = {-520,-520};
+bool my_window_focused = false;
+bool isSetWindowPos = false;
+bool isImageDown = false;
+bool isAimDown = false;
+bool isSetAim = false;
+bool isSetSize = false;
+
+struct TextureInfo {
+    ImTextureID textureId;
+    int width;
+    int height;
+};
+
+TextureInfo imageButton;
+TextureInfo offButton;
+TextureInfo onButton;
+TextureInfo robotpng;
+TextureInfo playerpng;
+static TextureInfo textureInfo;
+
+TextureInfo createTexture(const string &ImagePath) {
+    int w, h, n;
+    stbi_uc *data = stbi_load(ImagePath.c_str(), &w, &h, &n, 0);
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    
+    stbi_image_free(data);
+	
+    textureInfo.textureId = texture;
+    textureInfo.width = w;
+    textureInfo.height = h;
+    return textureInfo;
+}
+
+int style_idx = 0;
+int style = 0;
+
+ImColor TouchingColor = ImColor(255, 0, 0, 150);
+ImColor BoxColor = {1.0f,0.0f,0.0f,1.0f};
+ImColor BotBoxColor = ImColor(255,255,255,255);
+ImColor BoxblackColor = ImColor(255,0,0,25);
+ImColor BotBoxblackColor = ImColor(255,0,0,25);
+ImColor LineColor = ImColor(255,0,0,255);
+ImColor BotLineColor = ImColor(255,255,255,255);
+ImColor BoneColor = ImColor(255,0,0,255);
+ImColor BotBoneColor = ImColor(255,255,255,255);
+ImColor RightColor = ImColor(255,200,0,255);
+ImColor BotRightColor = ImColor(255,255,255,255);    
+ImColor WarningColor = ImColor(255,0,0,255);
+ImColor BotWarningColor = ImColor(255,255,255,255);    
+
+float BoxSize = 1.5f;
+float BotBoxSize = 1.5f;
+float LineSize = 1.5f;
+float BotLineSize = 1.5f;
+float BoneSize = 2.5f;
+float BotBoneSize = 2.5f;
+
+int show_ChildMenu = 0;
+bool UE4Get = false;
+bool IsBall = false;
+bool DrawIo[50];
+float NumIo[50];
+
+FILE *numSave = nullptr;
+FILE *numSave2 = nullptr;
+long addr_src = 0;
+
+void NumIoSave(const char *name)
+{
+    if (numSave2 == nullptr) {
+        string SaveFile = "/data";
+        SaveFile += "/";
+        SaveFile += name;
+        numSave2 = fopen(SaveFile.c_str(), "wb+");
+    }
+    fseek(numSave2, 0, SEEK_SET);
+	fwrite(DrawIo, sizeof(bool) * 50, 1, numSave2);
+    fwrite(NumIo, sizeof(float) * 50, 1, numSave2);
+	fwrite(&BoxColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&BotBoxColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&LineColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&BotLineColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&BoneColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&BotBoneColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&RightColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&BotRightColor, sizeof(ImColor), 1, numSave2);    
+	fwrite(&WarningColor, sizeof(ImColor), 1, numSave2);    
+	fwrite(&BotWarningColor, sizeof(ImColor), 1, numSave2); 
+	fwrite(&BoxSize, sizeof(float), 1, numSave2);
+    fwrite(&BotBoxSize, sizeof(float), 1, numSave2);
+    fwrite(&LineSize, sizeof(float), 1, numSave2);
+    fwrite(&BotLineSize, sizeof(float), 1, numSave2);
+    fwrite(&BoneSize, sizeof(float), 1, numSave2);
+    fwrite(&BotBoneSize, sizeof(float), 1, numSave2);
+	fwrite(&BoxblackColor, sizeof(ImColor), 1, numSave2);
+    fwrite(&BotBoxblackColor, sizeof(ImColor), 1, numSave2);
+    fflush(numSave2);
+    fsync(fileno(numSave2));
+}
+
+void NumIoLoad(const char *name)
+{
+    if (numSave2 == nullptr) {
+        string SaveFile = "/data";
+        SaveFile += "/";
+        SaveFile += name;
+        numSave2 = fopen(SaveFile.c_str(), "rb+");
+    }
+    if (numSave2 != nullptr) {
+        fseek(numSave2, 0, SEEK_SET);
+		fread(DrawIo, sizeof(bool) * 50, 1, numSave2);
+        fread(NumIo, sizeof(float) * 50, 1, numSave2);
+		fread(&BoxColor, sizeof(ImColor), 1, numSave2);
+        fread(&BotBoxColor, sizeof(ImColor), 1, numSave2);
+        fread(&LineColor, sizeof(ImColor), 1, numSave2);
+        fread(&BotLineColor, sizeof(ImColor), 1, numSave2);
+        fread(&BoneColor, sizeof(ImColor), 1, numSave2);
+        fread(&BotBoneColor, sizeof(ImColor), 1, numSave2);
+        fread(&RightColor, sizeof(ImColor), 1, numSave2);
+        fread(&BotRightColor, sizeof(ImColor), 1, numSave2);    
+		fread(&WarningColor, sizeof(ImColor), 1, numSave2);    
+		fread(&BotWarningColor, sizeof(ImColor), 1, numSave2);    		
+		fread(&BoxSize, sizeof(float), 1, numSave2);
+    	fread(&BotBoxSize, sizeof(float), 1, numSave2);
+    	fread(&LineSize, sizeof(float), 1, numSave2);
+    	fread(&BotLineSize, sizeof(float), 1, numSave2);
+    	fread(&BoneSize, sizeof(float), 1, numSave2);
+    	fread(&BotBoneSize, sizeof(float), 1, numSave2);
+		fread(&BoxblackColor, sizeof(ImColor), 1, numSave2);
+    	fread(&BotBoxblackColor, sizeof(ImColor), 1, numSave2);
+		if (NumIo[17] < 100.0f) NumIo[17] = 400.0f;
+    } else {             
+		NumIo[1] = 300.0f;                                                  
+		NumIo[2] = 400.0f;
+ 	    NumIo[3] = 150.0f;
+ 	    NumIo[4] = 15.0f;
+  	    NumIo[6] = 1400.0f;
+    	NumIo[5] = 650.0f;
+    	NumIo[7] = 300.0f;  
+    	NumIo[8] = 0.0f;  
+    	NumIo[9] = 3.5f; 
+		NumIo[10] = 0.0f;  
+		NumIo[11] = 600.0f;
+		NumIo[12] = 60;
+		NumIo[13] = 0.0f;
+		NumIo[14] = 1.9f;
+		NumIo[15] = 0.0f;
+		NumIo[16] = 400.0f;
+		NumIo[17] = 400.0f;
+		NumIo[20] = 0.0f;
+		NumIo[21] = 0.0f;
+    }
+}
+
+void CleanData() {
+    TouchingColor = ImColor(255, 0, 0, 150);
+    BoxColor = {1.0f,0.0f,0.0f,1.0f};
+    BotBoxColor = ImColor(255,255,255,255);
+    BoxblackColor = ImColor(255,0,0,25);
+    BotBoxblackColor = ImColor(255,0,0,25);
+    LineColor = ImColor(255,0,0,255);
+    BotLineColor = ImColor(255,255,255,255);
+    BoneColor = ImColor(255,0,0,255);
+    BotBoneColor = ImColor(255,255,255,255);
+    RightColor = ImColor(255,200,0,255);
+    BotRightColor = ImColor(255,255,255,255);    
+    WarningColor = ImColor(255,0,0,255);
+    BotWarningColor = ImColor(255,255,255,255);    
+
+	BoxSize = 1.5f;
+	BotBoxSize = 1.5f;
+	LineSize = 1.5f;
+	BotLineSize = 1.5f;
+	BoneSize = 2.5f;
+	BotBoneSize = 2.5f;
+	
+	NumIo[1] = 300.0f;                       
+	NumIo[2] = 400.0f;
+    NumIo[3] = 150.0f;
+    NumIo[4] = 15.0f;
+    NumIo[6] = 1400.0f;
+	NumIo[5] = 650.0f;
+	NumIo[7] = 300.0f;  
+	NumIo[8] = 0.0f;  
+	NumIo[9] = 3.5f; 
+	NumIo[10] = 0.0f;  
+	NumIo[11] = 600.0f;
+	NumIo[12] = 60;
+	NumIo[13] = 0.0f;
+	NumIo[14] = 1.9f;
+	NumIo[15] = 0.0f;
+	NumIo[16] = 400.0f;
+	NumIo[17] = 400.0f;
+	NumIo[20] = 0.0f;
+	NumIo[21] = 0.0f;
+}
+
+string getCmdResult(const string &strCmd) {
+    char buf[10240] = {0};
+    FILE *pf = NULL;
+    if ((pf = popen(strCmd.c_str(), "r")) == NULL) {
+        return "";
+    }
+    string strResult;
+    while (fgets(buf, sizeof buf, pf)) {
+        strResult += buf;
+    }
+    pclose(pf);
+    unsigned int iSize = strResult.size();
+    if (iSize > 0 && strResult[iSize - 1] == '\n') {
+        strResult = strResult.substr(0, iSize - 1);
+    }
+    return strResult;
+}
+
+bool IsAimLongAim = false;
+char AimName[32];
+int Aimchoose = (int)NumIo[21];
+
+int findminat()
+{
+    float min = NumIo[3];
+	float DistanceMin = NumIo[17];
+    int minAt = 999;
+    for (int i = 0; i < MaxPlayerCount; i++)
+    {
+		switch ((int)NumIo[21])
+        {
+            case 0:
+                if (IsAimLongAim) {
+					if (strcmp(Aim[i].Name, AimName) == 0) minAt = i;
+				} else {
+    				if (Aim[i].ScreenDistance < min) {
+						if (DrawIo[30]) strcpy(AimName, Aim[i].Name);
+        				min = Aim[i].ScreenDistance;
+        				minAt = i;
+    				}
+				}
+			break;
+			case 1:
+                if (IsAimLongAim) {
+					if (strcmp(Aim[i].Name, AimName) == 0) minAt = i;
+				} else {
+    				if (Aim[i].WodDistance < DistanceMin) {
+						if (DrawIo[30]) strcpy(AimName, Aim[i].Name);
+        				DistanceMin = Aim[i].WodDistance;
+        				minAt = i;
+					}
+    			}
+        	break;
+		}
+    }
+    if (minAt == 999) {
+        Gmin = -1;
+		IsAimLongAim = false;
+        return -1;
+    }
+    Gmin = minAt;   
+    Aim[minAt].WodDistance;
+	if (DrawIo[30]) IsAimLongAim = true;
+    return minAt;
+}
+
+Vec2 vpvp;
+float fwjl = NumIo[3];
+
+void AimBotAuto()
+{   
+    bool isDown = false;
+    double tx = NumIo[5], ty = NumIo[6];
+    float SpeedMin = 2.0f;
+    double ScreenX = screen_x, ScreenY = screen_y;
+    double ScrXH = ScreenX / 2.0f;
+    double ScrYH = ScreenY / 2.0f;
+    static float TargetX = 0;
+    static float TargetY = 0;
+    Vec3 obj;
+    float NowCoor[3];
+   
+    while (1)
+    {		
+		usleep(1000000 / 120);
+		ImGuiIO& iooi = ImGui::GetIO();
+		
+		if (DrawIo[21] && iooi.MouseDown[0] && iooi.MousePos.x <= NumIo[6] + NumIo[7] && iooi.MousePos.y <= screen_y - NumIo[5] + NumIo[7] && iooi.MousePos.x >= NumIo[6] - NumIo[7] && iooi.MousePos.y >= screen_y - NumIo[5] - NumIo[7])
+        {           
+        	usleep(30000);      
+            if (DrawIo[21] && iooi.MouseDown[0] && iooi.MousePos.x <= NumIo[6] + NumIo[7] && iooi.MousePos.y <= screen_y - NumIo[5] + NumIo[7] && iooi.MousePos.x >= NumIo[6] - NumIo[7] && iooi.MousePos.y >= screen_y - NumIo[5] - NumIo[7])
+        	{
+           		while (DrawIo[21] && iooi.MouseDown[0] && iooi.MousePos.x <= NumIo[6] + NumIo[7] && iooi.MousePos.y <= screen_y - NumIo[5] + NumIo[7] && iooi.MousePos.x >= NumIo[6] - NumIo[7] && iooi.MousePos.y >= screen_y - NumIo[5] - NumIo[7])
+                {			
+    				NumIo[6] = iooi.MousePos.x;
+                    NumIo[5] = screen_y - iooi.MousePos.y;
+					TouchingColor = ImColor(0, 220, 0, 150);
+    				usleep(500);           				
+                }		
+				TouchingColor = ImColor(255, 0, 0, 150);
+            }
+        }
+		
+        if (!DrawIo[20]) {           
+			IsAimLongAim = false;
+	        if (isDown == true) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }
+            usleep(NumIo[9] * 1000);
+            continue;
+        }
+
+        findminat();
+        if (Gmin == -1) {          
+			IsAimLongAim = false;
+            if (isDown == true) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }
+            usleep(NumIo[9] * 1000);
+            continue;
+        }
+		
+        float ToReticleDistance = Aim[Gmin].ScreenDistance;              
+        float FlyTime = Aim[Gmin].WodDistance / NumIo[11];
+        float DropM = 540.0f * FlyTime * FlyTime;
+		
+        bool Firing = temp->IsFiring;
+        bool Aiming = temp->Fov <= 75;     
+                  
+	    NowCoor[0] = Aim[Gmin].ObjAim.x;
+        NowCoor[1] = Aim[Gmin].ObjAim.y;
+        NowCoor[2] = Aim[Gmin].ObjAim.z;
+        obj.x = NowCoor[0] + (Aim[Gmin].AimMovement.x * FlyTime);
+        obj.y = NowCoor[1] + (Aim[Gmin].AimMovement.y * FlyTime);
+        obj.z = NowCoor[2] + (Aim[Gmin].AimMovement.z * FlyTime) + DropM;
+		
+		if (Firing) obj.z -= Aim[Gmin].WodDistance * NumIo[14] * GetWeaponId(temp->MyWeapon);
+		
+		float cameras = temp->matrix[3] * obj.x + temp->matrix[7] * obj.y + temp->matrix[11] * obj.z + temp->matrix[15]; 
+        
+        vpvp = WorldIsScreen(obj, temp->matrix, cameras);      
+		
+        zm_y = vpvp.x;     
+        zm_x = ScreenX - vpvp.y;        
+		float AimDs = sqrt(pow(screen_x / 2 - vpvp.x, 2) + pow(screen_y / 2 - vpvp.y, 2));
+		
+		if(DrawIo[23] && DrawIo[20] && temp->IsFiring==1) {
+            fwjl = AimDs;
+        }else{
+            fwjl = NumIo[3];
+        }
+		
+        if (zm_x <= 0 || zm_x >= ScreenX || zm_y <= 0 || zm_y >= ScreenY) {          
+			IsAimLongAim = false;
+            if (isDown == true) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }
+            usleep(NumIo[9] * 1000);
+            continue;
+        }
+
+        if (ToReticleDistance <= NumIo[3] || AimDs <= NumIo[3]) {                                    
+            switch ((int)NumIo[0]) {
+                case 0:
+                    if (!Firing) {
+						IsAimLongAim = false;
+                        if (isDown == true) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }                      
+                        usleep(NumIo[9] * 1000);
+                        continue;
+                    }
+                break;
+                case 1:
+                    if (!Aiming) {
+						IsAimLongAim = false;
+                        if (isDown == true) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }
+                        usleep(NumIo[9] * 1000);
+                        continue;
+                    }
+                break;
+                case 2:
+                    if (!Firing && !Aiming) {
+						IsAimLongAim = false;
+                        if (isDown == true) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }
+                        usleep(NumIo[9] * 1000);
+                        continue;
+                    }
+                break;
+				case 3: break;
+            }
+			
+			float Acc = getScopeAcc((int)(90 / temp->Fov));
+			
+            if (isDown == false) {
+				usleep(1000);
+				if (NumIo[10] == 0.0f) Touch_Down(6, (int)tx, (int)ty);
+				else Touch_Down(6, screen_y - (int)tx, screen_x-(int)ty);
+                isDown = true;
+				usleep(1000);
+            }
+
+            if (zm_x > ScrXH) {
+                TargetX = -(ScrXH - zm_x) / NumIo[4] * Acc;
+                if (TargetX + ScrXH > ScrXH * 2) TargetX = 0;
+            }
+            else if (zm_x < ScrXH) {
+                TargetX = (zm_x - ScrXH) / NumIo[4] * Acc;             
+                if (TargetX + ScrXH < 0) TargetX = 0;
+            }
+            
+            if (zm_y > ScrYH) {
+                TargetY = -(ScrYH - zm_y) / NumIo[4] * Acc;              
+                if (TargetY + ScrYH > ScrYH * 2) TargetY = 0;
+            }
+            else if (zm_y < ScrYH) {
+                TargetY = (zm_y - ScrYH) / NumIo[4] * Acc;              
+                if (TargetY + ScrYH < 0) TargetY = 0;
+            }
+
+            if (TargetY >= 35 || TargetX >= 35 || TargetY <= -35 || TargetX <= -35) {
+                if (isDown) { usleep(1000); tx = NumIo[5], ty = NumIo[6]; Touch_Up(6); isDown = false; }
+                usleep(NumIo[9] * 1000);
+                continue;
+            }           		
+			
+            tx += TargetX;
+            ty += TargetY;		
+			
+            if (tx >= NumIo[5] + NumIo[7] || tx <= NumIo[5] - NumIo[7] || ty >= NumIo[6] + NumIo[7] || ty <= NumIo[6] - NumIo[7]) {
+				usleep(1000);
+                tx = NumIo[5], ty = NumIo[6];
+                Touch_Up(6);         
+				usleep(3000);  
+				if (!NumIo[10]) Touch_Down(6, (int)tx, (int)ty);
+			    else Touch_Down(6, screen_y - (int)tx, screen_x - (int)ty);
+				isDown = true;
+				tx += TargetX;
+            	ty += TargetY;			
+				usleep(1000);
+            }         		     
+			
+			if (!NumIo[10]) Touch_Move(6, (int)tx, (int)ty);
+		    else Touch_Move(6, screen_y - (int)tx, screen_x - (int)ty);
+			isDown = true;
+			usleep(NumIo[9] * 1000);
+        } else {          
+			IsAimLongAim = false;
+            if (isDown) {
+                tx = NumIo[5], ty = NumIo[6];
+                Touch_Up(6);
+                isDown = false;
+				usleep(NumIo[9] * 1000);
+            }
+        }      
+    }
+}
+
+void DrawHealth(Vec2 box, float w, float entityHealth, uint32_t TeamID, char* name)
+{
+    float x = box.x - (140 - w) / 2;
+    float y = box.y;
+    char TeamText[50];
+    sprintf(TeamText,"%d",TeamID);
+    ImVec4 HPColor = entityHealth < 70 ? entityHealth < 55 ? entityHealth < 35 ? ImColor(255, 0, 0, 255) : ImColor(255, 165, 0, 255) : ImColor(255, 255, 0, 255) : ImColor(0,255,0,255);
+	
+	if (DrawIo[4]) {
+    	tm = 100.f/255.f;
+		if (name == "机器人") {
+    		DrawTf.DrawRectFilled(x-strlen(name), y - 41, 120 + strlen(name)*2, 20,ImVec4(1, 1, 1, 100.f/255.f));
+		} else {
+			DrawTf.DrawRectFilled(x-strlen(name), y - 41, 120 + strlen(name)*2, 20,arr[TeamID%length]);
+		}
+		
+    	if (strlen(TeamText) < 2) DrawTf.DrawStrokeText(x+6-strlen(name), box.y - 42, ImVec4{ 1.0f,1.0f ,0.0f ,1.0f }, TeamText);
+    	else DrawTf.DrawStrokeText(x-strlen(name), box.y - 42, ImVec4{ 1.0f,1.0f ,0.0f ,1.0f }, TeamText);
+    	
+		DrawTf.DrawStrokeText(x + 48-strlen(name), y - 43, ImColor(133, 182, 42,255), name);
+	}
+	
+    if (DrawIo[6]) {
+		ImGui::GetForegroundDrawList()->AddRect({x - strlen(name) - 11, y - 21}, {(x - strlen(name) - 10 + 100 * (strlen(name) * 2 + 150) / 100)+1, y - 18 + 23}, ImColor(0,0,0,255));
+		ImGui::GetForegroundDrawList()->AddRectFilled({x - strlen(name) - 10, y - 20}, {x - strlen(name) - 10 + entityHealth * (strlen(name) * 2 + 150) / 100, y - 18 + 22}, ImGui::GetColorU32(HPColor));
+	}
+}
+
+ImColor BoneDrawColor;
+
+void DrawBone(ImVec2 start, ImVec2 end, bool Cansee)
+{
+	if (Cansee) ImGui::GetForegroundDrawList()->AddLine(start, end, BoneDrawColor, {BoneSize});
+	else if (!Cansee) ImGui::GetForegroundDrawList()->AddLine(start, end, ImColor(0, 255, 0), {BotBoneSize});
+}
+
+void Draw_Main(ImDrawList *Draw)
+{
+	float top, right, left, bottom, top1; 
+	int PlayerCount = 0, BotCount = 0;
+	AimCount = 0;
+	
+    if (DrawIo[20] && temp->IsFiring == 1 && DrawIo[23]&&Gmin != -1) {    
+		Draw->AddCircle({screen_x / 2, screen_y / 2}, fwjl, ImColor(255, 0, 0), 0, 4.0f);
+	}else if(DrawIo[20]){
+        Draw->AddCircle({screen_x / 2, screen_y / 2}, NumIo[3], ImColor(133, 182, 42,255), 0, 4.0f);     
+    }
+	
+	if (DrawIo[44] && Gmin != -1) {   
+		Draw->AddLine({screen_x / 2, screen_y / 2}, {vpvp.x, vpvp.y}, ImColor(255, 135, 0), 2.5f);
+	}
+		
+	if (DrawIo[21]) {	
+        std::string ssf;  
+        ssf += "勿放控件，长按拖动";
+        auto textSize = ImGui::CalcTextSize(ssf.c_str(), 0, 32);
+		Draw->AddRectFilled({0,0}, {screen_x, screen_y},ImColor(0,0,0,110));    
+        Draw->AddRectFilled({NumIo[6] - NumIo[7] / 2, screen_y - NumIo[5] + NumIo[7] / 2}, {NumIo[6] + NumIo[7] / 2, screen_y - NumIo[5] - NumIo[7] / 2}, TouchingColor); 
+		Draw->AddText(NULL, 32, {NumIo[6] - (textSize.x / 2), screen_y - NumIo[5]}, ImColor(255, 255, 255), ssf.c_str());                                                   
+    }
+	
+    if (DrawIo[7]){
+        Draw->AddRect({NumIo[1] - 200, NumIo[2] - 200}, {NumIo[1] + 200, NumIo[2] + 200}, ImColor(ImVec4(255/255.f, 255/255.f, 258/255.f, 1.0f)));
+        Draw->AddLine({NumIo[1] + 200, NumIo[2]}, {NumIo[1] - 200, NumIo[2]}, ImColor(ImVec4(255/255.f, 255/255.f, 258/255.f, 0.5f)), 2);
+        Draw->AddLine({NumIo[1], NumIo[2] + 200}, {NumIo[1], NumIo[2] - 200}, ImColor(ImVec4(255/255.f, 255/255.f, 258/255.f, 0.5f)), 2);
+    }
+	
+	for (int i = 0; i < temp->mPlayerArray.Count; i ++)
+	{
+		Vec2 Radar = {(temp->MyPos.x - temp->mPlayerArray.mPlayer[i].Pos.x) / NumIo[16], (temp->MyPos.y - temp->mPlayerArray.mPlayer[i].Pos.y) / NumIo[16]};
+			
+		if (DrawIo[7]) {     
+            if (NumIo[1] + Radar.x >= NumIo[1] - 200 && NumIo[1] + Radar.x <= NumIo[1] + 200 && NumIo[2] + Radar.y >= NumIo[2] - 200 && NumIo[2] + Radar.y <= NumIo[2] + 200) {              
+                if (temp->mPlayerArray.mPlayer[i].IsBot) {
+                    Draw->AddCircleFilled({NumIo[1] + Radar.x, NumIo[2] + Radar.y}, {20}, ImColor(255, 255, 255));
+					string sdt = "";
+					auto textSize = ImGui::CalcTextSize(sdt.c_str(), 0, 25);
+                	Draw->AddText(NULL, 25, {NumIo[1] + Radar.x - textSize.x / 2, NumIo[2] + Radar.y - textSize.y * 0.45}, ImColor(50, 50, 50), sdt.c_str());
+                } else {
+					tm = 150.f/255.f;
+                    Draw->AddCircleFilled({NumIo[1] + Radar.x, NumIo[2] + Radar.y}, {20}, ImColor(arr[temp->mPlayerArray.mPlayer[i].TeamID % length]));
+					string sdt = to_string((int) temp->mPlayerArray.mPlayer[i].TeamID);    
+					auto textSize = ImGui::CalcTextSize(sdt.c_str(), 0, 25);
+                	Draw->AddText(NULL, 25, {NumIo[1] + Radar.x - textSize.x / 2, NumIo[2] + Radar.y - textSize.y * 0.45}, ImColor(255, 255, 255), sdt.c_str());
+            	}
+      		}
+        }
+			
+		if (temp->mPlayerArray.mPlayer[i].w > 0 && temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x > 0 && temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x < screen_x && temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y > 0 && temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y < screen_y)
+		{		
+			if (DrawIo[20]) {              
+				strcpy(Aim[AimCount].Name, temp->mPlayerArray.mPlayer[i].PlayerName);
+            	Aim[AimCount].WodDistance = temp->mPlayerArray.mPlayer[i].Distance;   
+                Aim[AimCount].AimMovement = temp->mPlayerArray.mPlayer[i].Predict;
+				if (NumIo[8] == 1.0){                                 
+                    Aim[AimCount].ObjAim = temp->mPlayerArray.mPlayer[i].Head.Pos;                            
+                    Aim[AimCount].ScreenDistance = sqrt(pow(screen_x / 2 - temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, 2) + pow(screen_y / 2 - temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y, 2));
+                } else if (NumIo[8] == 2.0){                                 
+                    Aim[AimCount].ObjAim = temp->mPlayerArray.mPlayer[i].Chest.Pos;                            
+                    Aim[AimCount].ScreenDistance = sqrt(pow(screen_x / 2 - temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.x, 2) + pow(screen_y / 2 - temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.y, 2));
+                } else if (NumIo[8] == 3.0){                                 
+                    Aim[AimCount].ObjAim = temp->mPlayerArray.mPlayer[i].Pelvis.Pos;                                                 
+                    Aim[AimCount].ScreenDistance = sqrt(pow(screen_x / 2 - temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.x, 2) + pow(screen_y / 2 - temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y, 2));
+                } else {
+					Aim[AimCount].ObjAim = temp->mPlayerArray.mPlayer[i].Head.Pos;                            
+                    Aim[AimCount].ScreenDistance = sqrt(pow(screen_x / 2 - temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, 2) + pow(screen_y / 2 - temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y, 2));
+				}           
+                AimCount++;
+            }
+			
+			left  = temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x - temp->mPlayerArray.mPlayer[i].w * 0.6;
+            right = temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x + temp->mPlayerArray.mPlayer[i].w * 0.6;
+			
+			if (!temp->mPlayerArray.mPlayer[i].Head.Pos.x) top1 = temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y - temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.y;
+			else top1 = temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y - temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y;
+			
+            top  = temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y - top1 - temp->mPlayerArray.mPlayer[i].w / 5;    
+            
+            if (temp->mPlayerArray.mPlayer[i].Left_Ankle.ScreenPos.y < temp->mPlayerArray.mPlayer[i].Right_Ankle.ScreenPos.y) bottom = temp->mPlayerArray.mPlayer[i].Right_Ankle.ScreenPos.y + temp->mPlayerArray.mPlayer[i].w / 10;
+            else bottom = temp->mPlayerArray.mPlayer[i].Left_Ankle.ScreenPos.y  + temp->mPlayerArray.mPlayer[i].w / 10;
+				
+			if (DrawIo[1]) {
+                if (temp->mPlayerArray.mPlayer[i].IsBot) Draw->AddRect({left, top}, {right, bottom}, BotBoxColor, {0}, 0, {BotBoxSize});          			
+                else Draw->AddRect({left, top}, {right, bottom}, BoxColor, {0}, 0, {BoxSize});       
+            }
+            
+            if (DrawIo[2]) {
+                if (temp->mPlayerArray.mPlayer[i].IsBot) Draw->AddLine({screen_x / 2 , 0}, {temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y}, BotLineColor, {BotLineSize});  
+                else Draw->AddLine({screen_x / 2 , 0}, {temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y}, LineColor, {LineSize});  
+            }
+			
+			if (DrawIo[3] && !temp->mPlayerArray.mPlayer[i].IsBot) {
+				if (temp->mPlayerArray.mPlayer[i].IsBot) BoneDrawColor = BotBoneColor;
+				else BoneDrawColor = BoneColor;
+				
+				if (temp->mPlayerArray.mPlayer[i].Head.CanSee) Draw->AddCircle({temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].w / 14, BoneColor, BoneSize);    
+				else Draw->AddCircle({temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].w / 14, ImColor(0, 255, 0), BotBoneSize);    
+				
+                DrawBone({temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Head.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Chest.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Pelvis.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Left_Shoulder.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Shoulder.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Left_Shoulder.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Chest.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Right_Shoulder.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Shoulder.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Right_Shoulder.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Left_Shoulder.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Shoulder.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Left_Elbow.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Elbow.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Left_Elbow.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Right_Shoulder.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Shoulder.ScreenPos.y},{temp->mPlayerArray.mPlayer[i].Right_Elbow.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Elbow.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Right_Elbow.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Left_Elbow.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Elbow.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Left_Wrist.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Wrist.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Left_Wrist.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Right_Elbow.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Elbow.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Right_Wrist.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Wrist.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Right_Wrist.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Left_Thigh.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Thigh.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Left_Thigh.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Pelvis.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Right_Thigh.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Thigh.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Right_Thigh.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Left_Thigh.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Thigh.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Left_Knee.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Knee.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Left_Knee.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Right_Thigh.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Thigh.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Right_Knee.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Knee.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Right_Knee.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Left_Knee.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Knee.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Left_Ankle.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Left_Ankle.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Left_Ankle.CanSee);
+                DrawBone({temp->mPlayerArray.mPlayer[i].Right_Knee.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Knee.ScreenPos.y}, {temp->mPlayerArray.mPlayer[i].Right_Ankle.ScreenPos.x, temp->mPlayerArray.mPlayer[i].Right_Ankle.ScreenPos.y}, temp->mPlayerArray.mPlayer[i].Right_Ankle.CanSee);                                  
+            }
+			
+			if (DrawIo[4] || DrawIo[6]) {
+				if (!temp->mPlayerArray.mPlayer[i].IsBot) DrawHealth({temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x - temp->mPlayerArray.mPlayer[i].w, top - 10}, temp->mPlayerArray.mPlayer[i].w * 2, temp->mPlayerArray.mPlayer[i].Health, temp->mPlayerArray.mPlayer[i].TeamID, temp->mPlayerArray.mPlayer[i].PlayerName);
+				else DrawHealth({temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x - temp->mPlayerArray.mPlayer[i].w, top - 10}, temp->mPlayerArray.mPlayer[i].w * 2, temp->mPlayerArray.mPlayer[i].Health, temp->mPlayerArray.mPlayer[i].TeamID, "机器人");
+			}
+			
+			if (DrawIo[5]) {
+				string str = to_string((int) temp->mPlayerArray.mPlayer[i].Distance);    
+				str += "M";
+				const char* s = str.c_str();			
+				DrawTf.DrawStrokeText(temp->mPlayerArray.mPlayer[i].Head.ScreenPos.x - strlen(s), bottom + 15, ImVec4{255.f/255.f,200.f/255.f,0.f/255.f,255.f/255.f}, s);
+            }		
+		} else {
+			if (DrawIo[8]) {
+				tm = 120.f/255.f;
+				float cameras = temp->matrix[3] * temp->mPlayerArray.mPlayer[i].Pos.x + temp->matrix[7] * temp->mPlayerArray.mPlayer[i].Pos.y + temp->matrix[11] * temp->mPlayerArray.mPlayer[i].Pos.z + temp->matrix[15]; 
+				if (!temp->mPlayerArray.mPlayer[i].IsBot) OffScreen(temp->mPlayerArray.mPlayer[i].ScreenPos, cameras, ImColor(arr[temp->mPlayerArray.mPlayer[i].TeamID%length]), NumIo[3] + 20 + temp->mPlayerArray.mPlayer[i].Distance * 0.3);
+				else OffScreen(temp->mPlayerArray.mPlayer[i].ScreenPos, cameras, ImColor(255, 255, 255, 255), NumIo[3] + 20 + temp->mPlayerArray.mPlayer[i].Distance * 0.3);
+            }
+		}
+		
+		if (temp->mPlayerArray.mPlayer[i].IsBot) BotCount ++;
+		else PlayerCount ++;
+	}
+	
+	MaxPlayerCount = AimCount;
+	
+    string str = "落叶";
+    Draw->AddText(NULL,48,{screen_x / 2 - 86,100}, ImColor(255,0,0), str.c_str());
+    string strr = to_string(PlayerCount) + to_string(BotCount);
+    Draw->AddText(NULL,70,ImVec2(screen_x / 2-30, 30), ImColor(255,0,0,255), to_string(PlayerCount+BotCount).c_str());
+}
+
+
+static bool ChildMenu1 = true;
+static bool ChildMenu2 = false;
+static bool ChildMenu3 = false;
+static bool ChildMenu4 = false;
+
+// ==========================================
+// FUNGSI RENDER UTAMA (FIXED)
+// ==========================================
+void Rendering(bool *flag) 
+{
+	温迪();
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (display == EGL_NO_DISPLAY) {
+        return;
+    }
+	
+    // Paksa aktifin context EGL di thread ini (Mencegah segfault di Android 14)
+    eglMakeCurrent(display, surface, surface, context);
+	
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplAndroid_NewFrame(); // Cek apakah repo baru butuh argumen
+    ImGui::NewFrame();
+    
+	ImGui::SetNextWindowSize(ImVec2(930, 730), ImGuiCond_Once);
+	Draw_Main(ImGui::GetForegroundDrawList());
+    
+    if (ImGui::Begin("落叶内核[3.0]", 0, ImGuiWindowFlags_NoSavedSettings)) 
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10 , 10});
+        
+        ImGui::BeginChild("##左侧菜单标题", ImVec2(200, 0), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NavFlattened);
+        {
+            ImGui::Spacing();
+            ImGui::Text("\t落叶");
+            ImGui::ItemSize(ImVec2(0, 20));
+            
+            if(ImGui::Button("主页区域",ImVec2(180,80))) {
+                ChildMenu1 = true; ChildMenu2 = false; ChildMenu3 = false; ChildMenu4 = false;
+            }
+            ImGui::Spacing();
+            if(ImGui::Button("绘制区域",ImVec2(180,80))) {
+                ChildMenu1 = false; ChildMenu2 = true; ChildMenu3 = false; ChildMenu4 = false;
+            }
+            ImGui::Spacing();
+            if(ImGui::Button("自瞄区域",ImVec2(180,80))) {
+                ChildMenu1 = false; ChildMenu2 = false; ChildMenu3 = true; ChildMenu4 = false;
+            }
+            ImGui::Spacing();
+            if(ImGui::Button("设置区域",ImVec2(180,80))) {
+                ChildMenu1 = false; ChildMenu2 = false; ChildMenu3 = false; ChildMenu4 = true;
+            }
+        }
+        ImGui::EndChild();
+        
+        ImGui::SameLine();
+        
+        if (ChildMenu1) {
+            ImGui::BeginChild("##主页", ImVec2(0, 0), true,  ImGuiWindowFlags_NavFlattened);
+            {
+                ImGui::ItemSize(ImVec2(0, 20));
+                ImGui::Text("\t落叶 - 3.0");
+                ImGui::Text("\t%d",测试);
+                
+                if (ImGui::Button("重新载入",{-1,75})) 初始化 = true;
+                else 初始化 = false;
+                
+                ImGui::Spacing();
+                if (ImGui::Button("退出程序",{-1,75})) *flag = false;
+                
+                ImGui::Spacing();
+                ImGui::SliderFloat("FPS", &NumIo[12], 60.0f, 120.0f, "%.3f", 1);   
+                ImGui::Text(" - 欢迎使用 落叶\n - 耗时 %.3fms/当前帧率 (%.1fFPS)", 1000.0f / io.Framerate, io.Framerate);
+                ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_Text], " - 设备分辨率为: %dx%d\n", screen_x, screen_y);   
+                ImGui::Text(" - libUE4：%p",模块地址);
+                ImGui::Text(" - Arrayaddr：%p",数组);
+            }
+            ImGui::EndChild();
+        }
+          
+        if (ChildMenu2) {
+            ImGui::BeginChild("##绘图", ImVec2(0, 0), true,  ImGuiWindowFlags_NavFlattened);
+            {
+                ImGui::Text("人物显示菜单");
+                if (ImGui::Button("显示全部",{-1,75})) {
+                    for (int i = 1; i <= 8; i ++) DrawIo[i] = true;
+                }      
+                if (ImGui::Button("隐藏全部",{-1,75})) {
+                    for (int i = 1; i <= 8; i ++) DrawIo[i] = false;
+                }
+              
+                ImGui::Checkbox("人物方框", &DrawIo[1]); ImGui::SameLine();
+                ImGui::Checkbox("人物射线", &DrawIo[2]); ImGui::SameLine();
+                ImGui::Checkbox("人物骨骼", &DrawIo[3]);
+                
+                ImGui::Checkbox("人物信息", &DrawIo[4]); ImGui::SameLine();
+                ImGui::Checkbox("人物距离", &DrawIo[5]); ImGui::SameLine();
+                ImGui::Checkbox("人物血量", &DrawIo[6]);
+                
+                ImGui::Checkbox("绘制雷达", &DrawIo[7]); ImGui::SameLine();
+                ImGui::Checkbox("背敌预警", &DrawIo[8]); ImGui::SameLine();
+                ImGui::Checkbox("忽略人机", &DrawIo[9]);  
+        
+                ImGui::SliderFloat("·雷达X位置调节", &NumIo[1], 0.0f, 2400.0f, "%.1f", 2);                                       
+                ImGui::SliderFloat("·雷达Y位置调节", &NumIo[2], 0.0f, 1080.0f, "%.1f", 3);
+            }
+            ImGui::EndChild();
+        }
+      
+        if (ChildMenu3) {
+            ImGui::BeginChild("##自瞄", ImVec2(0, 0), true,  ImGuiWindowFlags_NavFlattened);
+            {
+                ImGui::Spacing();
+                ImGui::Checkbox("自瞄开关", &DrawIo[20]);      
+                ImGui::Spacing();
+                ImGui::Checkbox("触摸位置", &DrawIo[21]); ImGui::SameLine();
+                ImGui::Checkbox("准心射线", &DrawIo[44]); ImGui::SameLine();
+                ImGui::Checkbox("动态自瞄", &DrawIo[23]);
+                 
+  int r_aim = (int)NumIo[21];
+if (ImGui::RadioButton("准心优先", &r_aim, 0)) NumIo[21] = 0.0f;
+ImGui::SameLine();
+if (ImGui::RadioButton("距离优先", &r_aim, 1)) NumIo[21] = 1.0f;
+
+int r_charge = (int)NumIo[10];
+if (ImGui::RadioButton("充电口右", &r_charge, 0)) NumIo[10] = 0.0f;
+ImGui::SameLine();
+if (ImGui::RadioButton("充电口左", &r_charge, 1)) NumIo[10] = 1.0f;
+                ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+                if (ImGui::Combo("自瞄条件", &style, "开火自瞄\0开镜自瞄\0开火||开镜\0")) {
+                    switch (style) {
+                        case 0:NumIo[0] = 0.0f; break;
+                        case 1:NumIo[0] = 1.0f; break;
+                        case 2:NumIo[0] = 2.0f; break;
+                    }          
+                }
+                
+                if (ImGui::Combo("自瞄部位", &style_idx, "自动\0头部\0胸部\0臀部\0")) {
+                    switch (style_idx) {
+                        case 0:NumIo[8] = 0.0; break;
+                        case 1:NumIo[8] = 1.0; break;
+                        case 2:NumIo[8] = 2.0; break;
+                        case 3:NumIo[8] = 3.0; break;
+                    }          
+                }
+            
+                if (ImGui::CollapsingHeader("自瞄参数设置")) {
+                    ImGui::SliderFloat("触摸范围", &NumIo[7],5.0f,600.0f,"%.0f",2);           
+                    ImGui::SliderFloat("自瞄范围", &NumIo[3], 10.0f, 500.0f, "%.0f", 1);                             
+                    ImGui::SliderFloat("自瞄速度", &NumIo[4], 0.1f, 30.0f, "%.2f", 2);         
+                    ImGui::SliderFloat("平滑力度", &NumIo[9], 0.1f, 10.0f, "%.1f", 3);                
+                    ImGui::SliderFloat("子弹速度", &NumIo[11], 100.0f, 1000.0f, "%.0f", 4);              
+                    ImGui::SliderFloat("压枪力度", &NumIo[14], 0.1f, 20.0f, "%.1f", 5);                
+                }
+            }
+            ImGui::EndChild();
+        }
+        
+        if (ChildMenu4) {
+            ImGui::BeginChild("##设置", ImVec2(0, 0), true,  ImGuiWindowFlags_NavFlattened);
+            {
+                if (ImGui::CollapsingHeader("绘制样式设置")) { }
+        
+                if (ImGui::CollapsingHeader("绘制粗细设置")) {      
+                    ImGui::SliderFloat("玩家方框", &BoxSize, 0.4f, 10.0f, "%.1f", 1);                             
+                    ImGui::SliderFloat("BOT方框", &BotBoxSize, 0.1f, 10.0f, "%.1f", 2);         
+                    ImGui::SliderFloat("玩家射线", &LineSize, 0.1f, 10.0f, "%.1f", 3);                
+                    ImGui::SliderFloat("BOT射线", &BotLineSize, 0.1f, 10.0f, "%.1f", 4);              
+                    ImGui::SliderFloat("玩家骨骼", &BoneSize, 0.1f, 10.0f, "%.1f", 5);   
+                    ImGui::SliderFloat("BOT骨骼", &BotBoneSize, 0.1f, 10.0f, "%.1f", 6);                
+                }
+            
+                if (ImGui::CollapsingHeader("绘制颜色设置")) {
+                    ImGui::ColorEdit4("玩家方框", (float*)&BoxColor,ImGuiColorEditFlags_NoInputs); ImGui::SameLine();
+                    ImGui::ColorEdit4("BOT方框", (float*)&BotBoxColor,ImGuiColorEditFlags_NoInputs);
+                    ImGui::ColorEdit4("玩家方框背景", (float*)&BoxblackColor,ImGuiColorEditFlags_NoInputs); ImGui::SameLine();
+                    ImGui::ColorEdit4("BOT方框背景", (float*)&BotBoxblackColor,ImGuiColorEditFlags_NoInputs);
+                    ImGui::ColorEdit4("玩家射线", (float*)&LineColor,ImGuiColorEditFlags_NoInputs); ImGui::SameLine();
+                    ImGui::ColorEdit4("BOT射线", (float*)&BotLineColor,ImGuiColorEditFlags_NoInputs);
+                    ImGui::ColorEdit4("玩家骨骼", (float*)&BoneColor,ImGuiColorEditFlags_NoInputs); ImGui::SameLine();
+                    ImGui::ColorEdit4("BOT骨骼", (float*)&BotBoneColor,ImGuiColorEditFlags_NoInputs); 
+                }    
+           
+                if (ImGui::Button("保存设置",{-1,75})) NumIoSave("luoyebaobao"); 
+                if (ImGui::Button("重置设置",{-1,75})) CleanData(); 
+            }
+            ImGui::EndChild();
+        }
+        
+        ImGui::PopStyleVar(); // Untuk ImGuiStyleVar_WindowPadding
+    }
+    ImGui::End(); // End untuk ImGui::Begin("落叶内核[3.0]")
+
+    ImGui::Render();  
+	
+    glClear(GL_COLOR_BUFFER_BIT);
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    eglSwapBuffers(display, surface);
+}
+
+int main()
+{
+    printf("1. Memulai Program...\n"); fflush(stdout);
+    screen_config();
+    
+    init_screen_x = screen_x;
+    init_screen_y = screen_y;
+    
+    printf("2. Resolusi Layar: %d x %d\n", init_screen_x, init_screen_y); fflush(stdout);
+	
+	new std::thread(读取进程);
+	
+    printf("3. Thread memory jalan. Init EGL...\n"); fflush(stdout);
+    if (!init_egl(init_screen_x, init_screen_y)) {
+        printf("3b. Gagal Init EGL!\n"); fflush(stdout);
+        exit(0);
+    }
+	
+    printf("4. EGL sukses. Init ImGui...\n"); fflush(stdout);
+    ImGui_init();
+	
+    printf("5. ImGui sukses. Init Touch...\n"); fflush(stdout);
+	Touch_Init(); 
+	
+    printf("6. Touch sukses. Tunggu 1 detik...\n"); fflush(stdout);
+	sleep(1);
+	
+	temp = tempRead; 
+    printf("7. Temp ptr: %p\n", temp); fflush(stdout);
+	
+	usleep(1000);
+	
+	new std::thread(AimBotAuto);
+    printf("8. AimBot jalan.\n"); fflush(stdout);
+	
+	NumIoLoad("luoyebaobao");
+    printf("9. Config di-load.\n"); fflush(stdout);
+	
+	RenderingFPS.SetFps(NumIo[12]);
+    printf("9.1 SetFps OK\n"); fflush(stdout);
+	RenderingFPS.AotuFPS_init();
+    printf("9.2 AotuFPS_init OK\n"); fflush(stdout);
+	RenderingFPS.setAffinity();
+    printf("9.3 setAffinity OK\n"); fflush(stdout);
+	
+	ImGuiIO& io = ImGui::GetIO();
+    printf("9.4 GetIO OK\n"); fflush(stdout);
+	
+    bool flag = true;
+	sleep(1);
+	
+    printf("10. Masuk Render Loop.\n"); fflush(stdout);
+    while (flag) {
+        Rendering(&flag);    
+		RenderingFPS.SetFps(NumIo[12]);
+		RenderingFPS.AotuFPS();
+    }
+	
+    shutdown();
+    return 0;
+}

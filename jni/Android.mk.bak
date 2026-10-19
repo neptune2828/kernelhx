@@ -1,0 +1,68 @@
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := General
+
+# ==========================================
+# COMPILER FLAGS
+# ==========================================
+LOCAL_CPPFLAGS += -w -s -Wno-error=format-security -fvisibility=hidden -std=c++2a -DIMGUI_DEFINE_MATH_OPERATORS
+LOCAL_CPPFLAGS += -Wno-error=c++11-narrowing -fpermissive -Wall -fexceptions
+
+# ==========================================
+# INCLUDE DIRECTORIES
+# ==========================================
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/ImGui/backends
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Aim
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Android_draw
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Android_shm
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Android_touch
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Android_check
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/ImGui
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Tools
+
+# Include untuk AndroidSurfaceImgui-Enhanced
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Android_Graphics
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/Android_my_imgui
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/My_Utils
+
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/src
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/src/Android_Graphics
+
+# ==========================================
+# SOURCE FILES
+# ==========================================
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Aim/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_draw/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_read/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_shm/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_touch/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_check/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/ImGui/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Tools/*.c*)
+
+# Source untuk AndroidSurfaceImgui-Enhanced
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_Graphics/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/Android_my_imgui/*.c*)
+FILE_LIST += $(wildcard $(LOCAL_PATH)/src/My_Utils/*.c*)
+
+# --- FILTER OUT FILE YANG GAK DIPAKAI ---
+# Buang imgui_demo.cpp biar gak error versi
+FILE_LIST := $(filter-out $(LOCAL_PATH)/src/ImGui/imgui_demo.cpp, $(FILE_LIST))
+# Buang VulkanGraphics.cpp karena kita pakai OpenGL
+FILE_LIST := $(filter-out $(LOCAL_PATH)/src/Android_Graphics/VulkanGraphics.cpp, $(FILE_LIST))
+# Buang file .bak kalau masih nyangkut
+FILE_LIST := $(filter-out $(LOCAL_PATH)/src/*.bak, $(FILE_LIST))
+FILE_LIST := $(filter-out $(LOCAL_PATH)/src/Android_draw/*.bak, $(FILE_LIST))
+# ----------------------------------------
+
+LOCAL_SRC_FILES += $(FILE_LIST:$(LOCAL_PATH)/%=%)
+
+# ==========================================
+# LINKER FLAGS
+# ==========================================
+LOCAL_LDFLAGS += -lEGL -lGLESv2 -lGLESv3 -landroid -llog
+
+include $(BUILD_EXECUTABLE)
